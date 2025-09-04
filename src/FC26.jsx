@@ -5,10 +5,13 @@ import { Zap, Star } from "lucide-react";
 // FC26 — UI Sandbox (Single file)
 // ================================
 // Ajustes solicitados y fixes:
+// - Solución al error de JSX adyacente: el return de FC26 está envuelto en un único padre (Fragment + <div> raíz).
 // - Unificación del estilo de estrellas (header y Attributes → Others) con 5 fijas:
 //   3 rellenas por defecto y 2 solo contorno; al subir con + se rellenan 4ª y 5ª.
 // - Others (Skill/WF) escalables por estrellas, sin barra numérica.
 // - Eliminado cualquier dependencia de componentes no definidos (Header, SpecializationsView, etc. definidos aquí).
+// - Retirada de Skills/WF + estrellas de los BLOQUES de arquetipos (vista Archetypes), tal como solicitaste.
+// - FIX actual: eliminar barras invertidas escapadas en JSX (p. ej., className=\"...\") que provocaban SyntaxError por secuencias Unicode.
 
 // ---------- Utils ----------
 const deepClone = typeof structuredClone === "function"
@@ -18,8 +21,31 @@ const deepClone = typeof structuredClone === "function"
 function clampLvl(n) { return Math.max(1, Math.min(40, Number(n) || 1)); }
 function hexToRgb(hex){ hex = hex.replace('#',''); if(hex.length===3){hex = hex.split('').map(c=>c+c).join('');} const num=parseInt(hex,16); return {r:(num>>16)&255,g:(num>>8)&255,b:(num)&255}; }
 function getUnlockedSlots(lvl) { return [lvl >= 1, lvl >= 10, lvl >= 20, lvl >= 40]; }
-function pointCost(v) { if (v <= 29) return 0; if (v <= 39) return 1; if (v <= 49) return 2; if (v <= 59) return 3; if (v <= 69) return 4; if (v <= 79) return 5; if (v <= 89) return 6; return 7; }
-function rangeCost(from, to) { if (to <= from) return 0; let c = 0; for (let v = from + 1; v <= to; v++) c += pointCost(v); return c; }
+// === Coste por punto (nuevo esquema) ===
+// 0–59 → 1 | 60–64 → 2 | 65–69 → 4 | 70–74 → 6
+// 75–79 → 8 | 80–84 → 10 | 85–89 → 15 | 90–94 → 20 | 95–99 → 25
+function pointCost(v) {
+  const n = Number(v) || 0;
+  if (n <= 59) return 1;
+  if (n <= 64) return 2;
+  if (n <= 69) return 4;
+  if (n <= 74) return 6;
+  if (n <= 79) return 8;
+  if (n <= 84) return 10;
+  if (n <= 89) return 15;
+  if (n <= 94) return 20;
+  if (n <= 99) return 25;
+  return 25; // ≥100
+}
+
+function rangeCost(from, to) {
+  const a = Math.floor(Number(from) || 0);
+  const b = Math.floor(Number(to) || 0);
+  if (b <= a) return 0;
+  let c = 0;
+  for (let v = a + 1; v <= b; v++) c += pointCost(v);
+  return c;
+}
 
 // ---------- Data ----------
 const ROLE_STYLES = {
@@ -125,37 +151,40 @@ function FC26() {
   const onSetSpentAbs = useCallback((val) => setApSpent(Math.max(0, val)), []);
 
   return (
-    <div className="min-h-screen bg-[#0d1115] text-white">
-      <Header
-        lvl={lvl}
-        setLvl={setLvl}
-        apAvail={apAvail}
-        apTotal={apTotal}
-        active={active}
-        onNav={onNav}
-        selectedArchetype={selectedArchetype}
-      />
+    <>
+      <div className="min-h-screen bg-[#0d1115] text-white">
+        <Header
+          lvl={lvl}
+          setLvl={setLvl}
+          apAvail={apAvail}
+          apTotal={apTotal}
+          active={active}
+          onNav={onNav}
+          selectedArchetype={selectedArchetype}
+        />
 
-      {active === "archetypes" && (
-        <ArchetypesView selected={selectedArchetype} onSelect={onArchetypeSelect} />
-      )}
+        {active === "archetypes" && (
+          <ArchetypesView selected={selectedArchetype} onSelect={onArchetypeSelect} />
+        )}
 
-      {active === "attributes" && (
-        <AttributesView data={data} setData={setData} lvl={lvl} apAvail={apAvail} onSpend={onSpendDelta} onSetSpent={onSetSpentAbs} />
-      )}
+        {active === "attributes" && (
+          <AttributesView data={data} setData={setData} lvl={lvl} apAvail={apAvail} onSpend={onSpendDelta} onSetSpent={onSetSpentAbs} />
+        )}
 
-      {active === "playstyles" && (
-        <PlaystylesView lvl={lvl} specializationPS={specializationPS} selectedArchetype={selectedArchetype} />
-      )}
+        {active === "playstyles" && (
+          <PlaystylesView lvl={lvl} specializationPS={specializationPS} selectedArchetype={selectedArchetype} />
+        )}
 
-      {active === "specializations" && (
-        <SpecializationsView value={specializationPS} onChange={setSpecializationPS} />
-      )}
+        {active === "specializations" && (
+          <SpecializationsView value={specializationPS} onChange={setSpecializationPS} />
+        )}
 
-      {active === "body" && <BodyView />}
+{active === "body" && <BodyView data={data} />}
 
-      <DevTests />
-    </div>
+
+        <DevTests />
+      </div>
+    </>
   );
 }
 
@@ -179,14 +208,18 @@ const Badge = memo(function Badge({ label, icon }) {
 const HeaderStars = memo(function HeaderStars({ selectedArchetype }) {
   if (!selectedArchetype) return null;
   const item = selectedArchetype.item || {};
-  const skill = typeof item.skills === 'number' ? item.skills : 3;
+  const skills = typeof item.skills === 'number' ? item.skills : 3;
   const weak  = typeof item.weakFoot === 'number' ? item.weakFoot : 3;
 
   return (
     <div className="flex items-center gap-2">
-      <div className="px-2 py-1 rounded-md border border-white/10 bg-white/5 text-xs flex items-center gap-1" title={`Skill Moves: ${skill}/5`}>
-        <span className="text-white/70">Skill</span>
-        <Stars5 value={skill} />
+      <div className="px-2.5 py-1.25 rounded-md border border-white/10 bg-white/5 text-xs flex items-center gap-1 min-h-[32px]" title="Acceleration type">
+        <span className="text-white/70">AcceleRATE</span>
+        <span className="text-amber-300 ml-1 font-bold">Controlled</span>
+      </div>
+      <div className="px-2 py-1 rounded-md border border-white/10 bg-white/5 text-xs flex items-center gap-1" title={`Skills Moves: ${skills}/5`}>
+        <span className="text-white/70">Skills</span>
+        <Stars5 value={skills} />
       </div>
       <div className="px-2 py-1 rounded-md border border-white/10 bg-white/5 text-xs flex items-center gap-1" title={`Weak Foot: ${weak}/5`}>
         <span className="text-white/70">WF</span>
@@ -283,16 +316,7 @@ const ArchetypesView = memo(function ArchetypesView({ selected, onSelect }) {
                     <div className="text-sm font-medium min-w-[220px] flex flex-col items-end justify-center">
                       <div className="text-xs text-white/70">PlayStyles</div>
                       <div className="flex gap-2">{(Array.isArray(a.playstyles)?a.playstyles:[]).map((ps) => <span key={ps}>{ps}</span>)}</div>
-                      <div className="mt-1 text-xs flex items-center gap-3">
-                        <div className="flex items-center gap-1">
-                          <span className="text-white/70">Skill</span>
-                          <Stars5 value={a.skills} />
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-white/70">WF</span>
-                          <Stars5 value={a.weakFoot} />
-                        </div>
-                      </div>
+                      {/* Skills/WF retirados de los BLOQUES de arquetipos */}
                     </div>
                   </div>
                 );
@@ -588,37 +612,158 @@ const SpecializationsView = memo(function SpecializationsView({ value, onChange 
 });
 
 // -------------- Body --------------
-const BodyView = memo(function BodyView() {
+// BodyView — Graph + right control block (Height & Weight sliders + linked attributes)
+function BodyView({ data, feet = 5, inches = 11, pounds = 176 }) {
+  const H_MIN_IN = 64; // 5'4" (162 cm)
+  const H_MAX_IN = 78; // 6'6" (198 cm)
+  const H_MIN_CM = 162;
+  const H_MAX_CM = 198;
+  const W_MIN_LB = 132; // ≈60 kg
+  const W_MAX_LB = 220; // ≈100 kg
+
+  const startInches = feet * 12 + inches;
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const startCm = clamp(Math.round(startInches * 2.54), H_MIN_CM, H_MAX_CM);
+  const [heightCm, setHeightCm] = useState(startCm);
+  const [weightLb, setWeightLb] = useState(clamp(pounds, W_MIN_LB, W_MAX_LB));
+
+  const heightInFloat = useMemo(() => heightCm / 2.54, [heightCm]);
+  const { feetTxt, inchTxt, cmTxt, kgTxt } = useMemo(() => {
+    let ft = Math.floor(heightInFloat / 12);
+    let inc = Math.round(heightInFloat - ft * 12);
+    if (inc === 12) { ft += 1; inc = 0; }
+    const kg = Math.round(weightLb * 0.45359237);
+    return { feetTxt: ft, inchTxt: inc, cmTxt: `${heightCm} cm`, kgTxt: `${kg} kg` };
+  }, [heightInFloat, heightCm, weightLb]);
+
+  const { xPct, yPct } = useMemo(() => {
+    const nx = (weightLb - W_MIN_LB) / Math.max(1, W_MAX_LB - W_MIN_LB);
+    const ny = 1 - (heightInFloat - H_MIN_IN) / Math.max(1, H_MAX_IN - H_MIN_IN);
+    return { xPct: nx * 100, yPct: ny * 100 };
+  }, [heightInFloat, weightLb]);
+
+  const BODY_STATS = ["Acceleration", "Agility", "Balance", "Jumping", "Sprint Speed", "Strength"];
+  const getStatByName = (name) => {
+    for (const cat of data || []) {
+      const idx = (cat.stats || []).findIndex((s) => s.name === name);
+      if (idx !== -1) return cat.stats[idx];
+    }
+    return null;
+  };
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10">
-      <h2 className="text-xl font-semibold mb-4">Body</h2>
-      <p className="text-white/70 text-sm">Altura y peso modificarán atributos clave en la ventana de Atributos. (placeholder)</p>
-    </div>
+    <>
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        <div className="flex items-start gap-6">
+          {/* --- Izquierda: Gráfica con sliders --- */}
+          <div className="w-[420px] rounded-2xl border border-white/10 bg-white/[0.02] relative overflow-hidden">
+            {/* Header con sliders */}
+            <div className="px-5 pt-4 pb-2 grid grid-cols-2 gap-4 select-none">
+              <div className="text-left">
+                <div className="text-base font-bold text-white">Height</div>
+                <div className="text-2xl font-semibold mt-0.5">{`${feetTxt}'${inchTxt}"`}</div>
+                <div className="text-[11px] text-white/60 mt-0.5">({cmTxt})</div>
+                <div className="mt-2">
+                  <input type="range" min={H_MIN_CM} max={H_MAX_CM} step={1} value={heightCm} onChange={(e) => setHeightCm(Number(e.target.value))} className="w-full accent-gray-300" />
+                  <div className="flex justify-between text-[10px] text-white/50 mt-0.5">
+                    <span>5'4" (162 cm)</span>
+                    <span>6'6" (198 cm)</span>
+                  </div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-base font-bold text-white">Weight</div>
+                <div className="text-2xl font-semibold mt-0.5">{`${weightLb} lbs`}</div>
+                <div className="text-[11px] text-white/60 mt-0.5">({kgTxt})</div>
+                <div className="mt-2">
+                  <input type="range" min={W_MIN_LB} max={W_MAX_LB} step={1} value={weightLb} onChange={(e) => setWeightLb(Number(e.target.value))} className="w-full accent-gray-300" />
+                  <div className="flex justify-between text-[10px] text-white/50 mt-0.5">
+                    <span>132 lbs (60 kg)</span>
+                    <span>220 lbs (100 kg)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ÚNICA Gráfica */}
+            <div className="px-4 pb-3">
+              <div className="relative w-full h-[360px] rounded-[14px] bg-transparent overflow-hidden">
+                {/* Rejilla (centrales marcadas + líneas finas) */}
+                <div className="absolute inset-0 pointer-events-none">
+                  {/* Ejes centrales */}
+                  <div className="absolute left-1/2 top-0 -translate-x-1/2 w-[2px] h-full bg-white/50" />
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 h-[2px] w-full bg-white/50" />
+                  {/* Líneas finas */}
+                  <div className="absolute top-0 bottom-0 left-[25%] w-px bg-white/10" />
+                  <div className="absolute top-0 bottom-0 left-[75%] w-px bg-white/10" />
+                  <div className="absolute left-0 right-0 top-[25%] h-px bg-white/10" />
+                  <div className="absolute left-0 right-0 top-[75%] h-px bg-white/10" />
+                </div>
+                {/* Knob */}
+                <div className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: `${xPct}%`, top: `${yPct}%` }}>
+                  <div className="w-8 h-8 rounded-full border border-white/40 bg-white/25 backdrop-blur-[2px] flex items-center justify-center shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
+                    <div className="w-3.5 h-3.5 rounded-full bg-white/80" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* --- Derecha: Bloque de atributos enlazados --- */}
+          <div className="flex-1">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 w-full">
+              <h3 className="text-sm font-semibold tracking-wide uppercase text-white/70 mb-2">Attributes</h3>
+              <div className="space-y-3">
+                {BODY_STATS.map((name) => {
+                  const s = getStatByName(name);
+                  const value = s ? s.val : 0;
+                  const stars = s ? (s.stars || 0) : 0;
+                  return (
+                    <Row key={name} name={name} value={value} stars={stars} active={false} onClick={() => {}} />
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tests de validación en runtime */}
+      <DevTests />
+    </>
   );
-});
+}
+
 
 // -------------- Dev Tests --------------
 function DevTests() {
   useEffect(() => {
     try {
-      // Tests existentes
-      console.assert(pointCost(29) === 0, 'pointCost(29)=0');
-      console.assert(pointCost(39) === 1, 'pointCost(39)=1');
-      console.assert(pointCost(49) === 2, 'pointCost(49)=2');
-      console.assert(pointCost(59) === 3, 'pointCost(59)=3');
-      console.assert(pointCost(69) === 4, 'pointCost(69)=4');
-      console.assert(pointCost(79) === 5, 'pointCost(79)=5');
-      console.assert(pointCost(89) === 6, 'pointCost(89)=6');
-      console.assert(pointCost(95) === 7, 'pointCost(95)=7');
+      // Verificación del nuevo mapeo de costes
+      console.assert(pointCost(0) === 1 && pointCost(59) === 1, '0–59 → 1 AP');
+      console.assert(pointCost(60) === 2 && pointCost(64) === 2, '60–64 → 2 AP');
+      console.assert(pointCost(65) === 4 && pointCost(69) === 4, '65–69 → 4 AP');
+      console.assert(pointCost(70) === 6 && pointCost(74) === 6, '70–74 → 6 AP');
+      console.assert(pointCost(75) === 8 && pointCost(79) === 8, '75–79 → 8 AP');
+      console.assert(pointCost(80) === 10 && pointCost(84) === 10, '80–84 → 10 AP');
+      console.assert(pointCost(85) === 15 && pointCost(89) === 15, '85–89 → 15 AP');
+      console.assert(pointCost(90) === 20 && pointCost(94) === 20, '90–94 → 20 AP');
+      console.assert(pointCost(95) === 25 && pointCost(99) === 25, '95–99 → 25 AP');
+      console.assert(pointCost(100) === 25, '≥100 → 25');
 
-      console.assert(rangeCost(75, 76) === pointCost(76), 'range single');
-      console.assert(rangeCost(74, 76) === pointCost(75) + pointCost(76), 'range two');
-      console.assert(rangeCost(80, 80) === 0, 'range none');
+      // Sanidad básica para rangeCost con el nuevo esquema
+      console.assert(rangeCost(69, 70) === 6, '69→70 cuesta 6');
+      console.assert(rangeCost(74, 75) === 8, '74→75 cuesta 8');
+      console.assert(rangeCost(79, 80) === 10, '79→80 cuesta 10');
+      console.assert(rangeCost(84, 85) === 15, '84→85 cuesta 15');
+      console.assert(rangeCost(89, 90) === 20, '89→90 cuesta 20');
+      console.assert(rangeCost(94, 95) === 25, '94→95 cuesta 25');
 
-      const f1 = getUnlockedSlots(1);  console.assert(f1[0] && !f1[1] && !f1[2] && !f1[3], 'flags lvl1');
-      const f10= getUnlockedSlots(10); console.assert(f10[0] && f10[1] && !f10[2] && !f10[3], 'flags lvl10');
-      const f20= getUnlockedSlots(20); console.assert(f20[2] && f20[0] && f20[1] && !f20[3], 'flags lvl20');
-      const f40= getUnlockedSlots(40); console.assert(f40.every(Boolean), 'flags lvl40');
+      // Flags de slots por nivel
+      const f1  = getUnlockedSlots(1);  console.assert(f1[0] && !f1[1] && !f1[2] && !f1[3], 'flags lvl1');
+      const f10 = getUnlockedSlots(10); console.assert(f10[0] && f10[1] && !f10[2] && !f10[3], 'flags lvl10');
+      const f20 = getUnlockedSlots(20); console.assert(f20[0] && f20[1] && f20[2] && !f20[3], 'flags lvl20');
+      const f40 = getUnlockedSlots(40); console.assert(f40.every(Boolean), 'flags lvl40');
 
       // Nuevos tests mínimos (sin romper existentes)
       console.assert(STAR_VALS[3] === 75 && STAR_VALS[4] === 85 && STAR_VALS[5] === 95, 'STAR_VALS mapping');
@@ -627,6 +772,10 @@ function DevTests() {
       console.assert(others.stats[0].stars===3 && others.stats[0].val===75, 'Skill default 3★ => 75');
       console.assert(typeof ARCHETYPES === 'object' && Object.keys(ARCHETYPES).length>=1, 'Archetypes defined');
       console.assert(Array.isArray(SPEC_OPTIONS) && SPEC_OPTIONS.length===3, 'SPEC_OPTIONS length');
+
+      // Extra: clamps
+      console.assert(clampLvl(0) === 1, 'clampLvl lower bound');
+      console.assert(clampLvl(999) === 40, 'clampLvl upper bound');
     } catch (err) { console.error('DevTests failed:', err); }
   }, []);
   return null;
