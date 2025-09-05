@@ -1,5 +1,5 @@
 import { memo, useMemo, useState, useEffect, useCallback } from "react";
-import { Zap, Star } from "lucide-react";
+import { Zap, Star, Key } from "lucide-react";
 
 // ================================
 // FC26 — UI Sandbox (Single file)
@@ -14,11 +14,22 @@ import { Zap, Star } from "lucide-react";
 // - FIX actual: eliminar barras invertidas escapadas en JSX (p. ej., className=\"...\") que provocaban SyntaxError por secuencias Unicode.
 
 // ---------- Utils ----------
+function normalizeAttrName(s) {
+  if (!s) return s;
+  const map = {
+    "Heading Accuracy": "Heading Acc.",
+    "Composture": "Composure",
+    "Long Shot": "Long Shots",
+    "FK Accuracy": "FK Acc."
+  };
+  return map[s] || s;
+}
+
 const deepClone = typeof structuredClone === "function"
   ? (v) => structuredClone(v)
   : (v) => JSON.parse(JSON.stringify(v));
 
-function clampLvl(n) { return Math.max(1, Math.min(40, Number(n) || 1)); }
+function clampLvl(n) { return Math.max(1, Math.min(50, Number(n) || 1)); }
 function hexToRgb(hex){ hex = hex.replace('#',''); if(hex.length===3){hex = hex.split('').map(c=>c+c).join('');} const num=parseInt(hex,16); return {r:(num>>16)&255,g:(num>>8)&255,b:(num)&255}; }
 function getUnlockedSlots(lvl) { return [lvl >= 1, lvl >= 10, lvl >= 20, lvl >= 40]; }
 // === Coste por punto (nuevo esquema) ===
@@ -48,6 +59,22 @@ function rangeCost(from, to) {
 }
 
 // ---------- Data ----------
+// ---- Position color mapping ----
+const POSITION_COLORS = {
+  GK: "#fb923c", // orange
+  CB: "#facc15", RB: "#facc15", LB: "#facc15", RWB: "#facc15", LWB: "#facc15", // yellow
+  CDM: "#22c55e", CM: "#22c55e", RM: "#22c55e", LM: "#22c55e", CAM: "#22c55e", // green
+  RW: "#3b82f6", LW: "#3b82f6", RF: "#3b82f6", LF: "#3b82f6", CF: "#3b82f6", ST: "#3b82f6", // blue
+};
+const positionColor = (pos) => POSITION_COLORS[pos] || "#9ca3af";
+
+const ARCH_ORDER = {
+  Forward: ["Target","Finisher","Magician"],
+  Midfielder: ["Spark","Creator","Maestro","Recycler"],
+  Defender: ["Marauder","Engine","Boss","Progressor"],
+  Goalkeeper: ["Sweeper Keeper","Shot Stopper"],
+};
+
 const ROLE_STYLES = {
   Forward:     { accent: "#00E5FF", glow: "rgba(0,229,255,0.2)" },
   Midfielder:  { accent: "#22C55E", glow: "rgba(34,197,94,0.2)" },
@@ -57,32 +84,22 @@ const ROLE_STYLES = {
 
 const ARCHETYPES = {
   Forward: {
-    items: [
-      { name: "Magician", desc: "Combining remarkable control, dribbling, and vision, this player creates chances out of very little, both for themselves and teammates.", playstyles: ["Technical", "Finesse Shot"], skills: 5, weakFoot: 5 },
-      { name: "Finisher", desc: "Possesses a killer instinct in front of goal - a beast when one-on-one with the keeper.", playstyles: ["Low Driven Shot", "First Touch"], skills: 5, weakFoot: 5 },
-      { name: "Target", desc: "Classic hold-up player that harnesses their physicality in duels both on the ground and in the air.", playstyles: ["Power Shot", "Precision Header"], skills: 5, weakFoot: 5 },
-    ],
-  },
+  items: [
+    { name: "Target", desc: "Dominant aerial presence and reliable hold-up striker.", playstyles: ["Power Shot","Precision Header"], skills: 5, weakFoot: 5, positions: ["ST","LW","RW","CAM"], keyAttrs: ["Shot Power","Heading Accuracy","Jumping","Strength"] },
+    { name: "Finisher", desc: "Clinical goal-scorer with elite instinct in the box.", playstyles: ["Finesse Shot","Acrobatic"], skills: 5, weakFoot: 5, positions: ["ST","LW","RW","CAM"], keyAttrs: ["Reactions","Composure","Finishing","Volleys"] , inspiredBy: "Alex Morgan"},
+    { name: "Magician", desc: "Creative forward who unlocks defenses in tight spaces.", playstyles: ["Rapid","Trickster"], skills: 5, weakFoot: 5, positions: ["ST","LW","RW","CAM","LM","RM"], keyAttrs: ["Acceleration","Finishing","Curve","Balance"] , inspiredBy: "Ronaldinho"}
+  ]
+},
   Midfielder: {
-    items: [
-      { name: "Recycler", desc: "This passing machine is critical to taking the ball from the backline and giving it to your most dangerous attackers.", playstyles: ["Press Proven", "Intercept"], skills: 4, weakFoot: 5 },
-      { name: "Maestro", desc: "Orchestrating the game from deep, this player can unlock a defence to create chances for their forwards.", playstyles: ["Tiki Taka", "Pinged Pass"], skills: 5, weakFoot: 5 },
-      { name: "Creator", desc: "Capable of delivering precise and incisive passes that can dismantle even the most organised backlines.", playstyles: ["Incisive Pass", "Inventive Pass"], skills: 4, weakFoot: 5 },
-      { name: "Spark", desc: "Excels in short, explosive bursts - getting to the byline and pulling back tantalising crosses for teammates.", playstyles: ["Rapid", "Trickster"], skills: 5, weakFoot: 5 },
-    ],
+    items: [{ name: "Recycler", desc: "This passing machine is critical to taking the ball from the backline and giving it to your most dangerous attackers.", playstyles: ["Press Proven", "Intercept"], skills: 4, weakFoot: 5 , positions: ["CAM","CM","CDM","CB"], keyAttrs: ["Long Shots","Interceptions","Def. Aware","Strength"] , inspiredBy: "Michaël Essien"}, { name: "Maestro", desc: "Orchestrating the game from deep, this player can unlock a defence to create chances for their forwards.", playstyles: ["Tiki Taka", "Pinged Pass"], skills: 5, weakFoot: 5 , positions: ["CAM","LM","RM","CM","CDM"], keyAttrs: ["Ball Control","Composure","Long Pass","Vision"] , inspiredBy: "Toni Kroos"}, { name: "Creator", desc: "Capable of delivering precise and incisive passes that can dismantle even the most organised backlines.", playstyles: ["Incisive Pass", "Inventive Pass"], skills: 4, weakFoot: 5 , positions: ["CAM","LM","RM","CM"], keyAttrs: ["Long Pass","Vision","Short Pass","Curve"] , inspiredBy: "Xavi"}, { name: "Spark", desc: "Excels in short, explosive bursts - getting to the byline and pulling back tantalising crosses for teammates.", playstyles: ["Rapid", "Trickster"], skills: 5, weakFoot: 5 , positions: ["LW","RW","CAM","LM","RM"], keyAttrs: ["Acceleration","Agility","Ball Control","Dribbling"] , inspiredBy: "Luís Figo"}],
   },
   Defender: {
-    items: [
-      { name: "Progressor", desc: "A modern centre-back capable of stepping out of the backline to start attacks with progressive passing.", playstyles: ["Long Ball Pass", "Anticipate"], skills: 3, weakFoot: 3 },
-      { name: "Boss", desc: "Wins the ball with imposing physicality. Willing to put everything on the line for the team.", playstyles: ["Bruiser", "Aerial Fortress"], skills: 3, weakFoot: 3 },
-      { name: "Engine", desc: "This player's incredible stamina allows them to maintain maximum effort throughout the match.", playstyles: ["Jockey", "Relentless"], skills: 3, weakFoot: 3 },
-      { name: "Marauder", desc: "A defensive specialist whose pulsating pace means they're also comfortable and effective going forward.", playstyles: ["Whipped Pass", "Quick Step"], skills: 3, weakFoot: 3 },
-    ],
+    items: [{ name: "Progressor", desc: "A modern centre-back capable of stepping out of the backline to start attacks with progressive passing.", playstyles: ["Long Ball Pass", "Anticipate"], skills: 3, weakFoot: 3 , inspiredBy: "Fernando Hierro"}, { name: "Boss", desc: "Wins the ball with imposing physicality. Willing to put everything on the line for the team.", playstyles: ["Bruiser", "Aerial Fortress"], skills: 3, weakFoot: 3 , inspiredBy: "Nemanja Vidić" }, { name: "Engine", desc: "This player's incredible stamina allows them to maintain maximum effort throughout the match.", playstyles: ["Jockey", "Relentless"], skills: 3, weakFoot: 3 , inspiredBy: "Park Ji Sung"}, { name: "Marauder", desc: "A defensive specialist whose pulsating pace means they're also comfortable and effective going forward.", playstyles: ["Whipped Pass", "Quick Step"], skills: 3, weakFoot: 3 , inspiredBy: "Cafú"}],
   },
   Goalkeeper: {
     items: [
       { name: "Shot Stopper", desc: "Unphased when faced with an attacker one-on-one, can be relied upon to make difficult saves.", playstyles: ["Footwork", "Far Reach"], skills: 3, weakFoot: 3 },
-      { name: "Sweeper Keeper", desc: "A modern-day keeper, comfortable with the ball at their feet, and with a high defensive line.", playstyles: ["Cross Claimer", "1v1 Close Down"], skills: 3, weakFoot: 3 },
+      { name: "Sweeper Keeper", desc: "A modern-day keeper, comfortable with the ball at their feet, and with a high defensive line.", playstyles: ["Cross Claimer", "1v1 Close Down"], skills: 3, weakFoot: 3 , inspiredBy: "Lev Yashin"},
     ],
   },
 };
@@ -103,7 +120,7 @@ const BASE_DATA = CATS_BASE.map((c) => ({
   stats: c.stats.map(([name, val, keyAttr, stars]) => ({ name, val, keyAttr: !!keyAttr, stars: stars || 0 })),
 }));
 
-const AP_BY_LEVEL = [40,7,7,7,15,8,8,8,8,20,10,10,10,10,20,10,10,10,10,35,15,15,15,15,30,20,20,20,20,50,20,20,20,20,30,20,20,20,20,40];
+const AP_BY_LEVEL = [40, 7, 7, 7, 15, 8, 8, 8, 8, 20, 10, 10, 10, 10, 20, 10, 10, 10, 10, 35, 15, 15, 15, 15, 30, 20, 20, 20, 20, 50, 20, 20, 20, 20, 30, 20, 20, 20, 20, 40, 20, 20, 20, 20, 35, 20, 20, 20, 20, 50];
 
 // Mapeo estrellas -> valor representativo (para coste/color). Index 1..5
 const STAR_VALS = [0, 40, 60, 75, 85, 95];
@@ -168,7 +185,7 @@ function FC26() {
         )}
 
         {active === "attributes" && (
-          <AttributesView data={data} setData={setData} lvl={lvl} apAvail={apAvail} onSpend={onSpendDelta} onSetSpent={onSetSpentAbs} />
+          <AttributesView data={data} setData={setData} lvl={lvl} apAvail={apAvail} onSpend={onSpendDelta} onSetSpent={onSetSpentAbs} selectedArchetype={selectedArchetype} />
         )}
 
         {active === "playstyles" && (
@@ -265,8 +282,8 @@ function Header({ lvl, setLvl, apAvail, apTotal, active, onNav, selectedArchetyp
           <div className="flex items-center gap-3 text-xs">
             <div className="flex items-center gap-2">
               <label className="text-white/70 text-xs">LVL</label>
-              <input type="range" min={1} max={40} value={lvl} onChange={onLvlRange} className="w-24" style={{ accentColor: accent || "#6b7280" }} />
-              <input type="number" min={1} max={40} value={lvl} onChange={onLvlNum} className="w-14 px-1 py-0.5 text-center rounded bg-white/5 border border-white/15 text-xs" />
+              <input type="range" min={1} max={50} value={lvl} onChange={onLvlRange} className="w-24" style={{ accentColor: accent || "#6b7280" }} />
+              <input type="number" min={1} max={50} value={lvl} onChange={onLvlNum} className="w-14 px-1 py-0.5 text-center rounded bg-white/5 border border-white/15 text-xs" />
             </div>
             <Badge icon={<Star className="size-3" />} label={<span><b className="text-amber-300">AP</b> {apAvail} <span className="opacity-60">/ {apTotal}</span></span>} />
           </div>
@@ -284,6 +301,9 @@ const ArchetypesView = memo(function ArchetypesView({ selected, onSelect }) {
       <div className="mb-4 text-xs text-white/60">Haz clic en un bloque para seleccionar un arquetipo.</div>
       {entries.map(([role, cfg]) => {
         const items = Array.isArray(cfg?.items) ? cfg.items : [];
+        const desired = ARCH_ORDER[role] || [];
+        const indexOf = (name) => { const i = desired.indexOf(name); return i === -1 ? 9999 : i; };
+        const itemsOrdered = [...items].sort((a,b) => indexOf(a?.name) - indexOf(b?.name));
         const styleCfg = ROLE_STYLES[role] || { accent: "#6b7280", glow: "rgba(255,255,255,0.06)" };
         const { accent } = styleCfg;
         const { r,g,b } = hexToRgb(accent);
@@ -291,7 +311,7 @@ const ArchetypesView = memo(function ArchetypesView({ selected, onSelect }) {
           <div key={role}>
             <h2 className="text-3xl font-bold mb-6" style={{ color: accent }}>{role}</h2>
             <div className="space-y-4 relative">
-              {items.map((a) => {
+              {itemsOrdered.map((a) => {
                 const isSel = selected?.role === role && selected?.item?.name === a.name;
                 const ringStyle = isSel ? { boxShadow: `0 0 0 2px ${accent}` } : {};
                 const handleSelect = () => onSelect({ role, item: a });
@@ -311,8 +331,8 @@ const ArchetypesView = memo(function ArchetypesView({ selected, onSelect }) {
                       ...ringStyle
                     }}
                   >
-                    <div className="font-semibold text-lg min-w-[120px]">{a.name}</div>
-                    <div className="text-sm text-white/80 flex-1">{a.desc}</div>
+                    <div className="min-w-[120px]">  <div className="font-semibold text-lg leading-tight">{a.name}</div>  {a.inspiredBy && (    <div className="mt-0.5">      <div className="text-[10px] uppercase tracking-wide text-white/50">Inspired by</div>      <div className="text-xs text-white/70">{a.inspiredBy}</div>    </div>  )}</div>
+                    <div className="text-sm text-white/80 flex-1">{a.desc}<div className="mt-3 space-y-2">  <div>    <div className="text-xs text-white/70 uppercase font-semibold mb-1">Positions</div>    <div className="flex flex-wrap gap-2">{(() => {      const pos = a.positions || []; const groups = []; const used = new Set();      pos.forEach(p => { if (used.has(p)) return; let pair = null;        if ((p==="LW" && pos.includes("RW")) || (p==="RW" && pos.includes("LW"))) pair = ["LW","RW"];        else if ((p==="LF" && pos.includes("RF")) || (p==="RF" && pos.includes("LF"))) pair = ["LF","RF"];        else if ((p==="LB" && pos.includes("RB")) || (p==="RB" && pos.includes("LB"))) pair = ["LB","RB"];        else if ((p==="LWB" && pos.includes("RWB")) || (p==="RWB" && pos.includes("LWB"))) pair = ["LWB","RWB"];        else if ((p==="LM" && pos.includes("RM")) || (p==="RM" && pos.includes("LM"))) pair = ["LM","RM"];        if (pair) { pair.forEach(x=>used.add(x)); groups.push(pair.join("/")); } else { used.add(p); groups.push(p); }      });      return groups.map(g => { const c = positionColor(g.includes("/") ? g.split("/")[0] : g); return (<span key={g} className="px-2 py-0.5 rounded-full border text-xs" style={{borderColor:c,color:c}}>{g}</span>); });    })()}</div>  </div>  <div>    <div className="text-xs text-white/70 uppercase font-semibold mb-1">Key Attributes</div>    <div className="flex flex-wrap gap-2">{([...(a.keyAttrs||[])]).sort((a,b)=>String(a).localeCompare(String(b))).map((k)=>(<span key={k} className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-xs">{k}</span>))}</div>  </div></div></div>
                     <div className="text-sm font-medium min-w-[220px] flex flex-col items-end justify-center">
                       <div className="text-xs text-white/70">PlayStyles</div>
                       <div className="flex gap-2">{(Array.isArray(a.playstyles)?a.playstyles:[]).map((ps) => <span key={ps}>{ps}</span>)}</div>
@@ -330,9 +350,10 @@ const ArchetypesView = memo(function ArchetypesView({ selected, onSelect }) {
 });
 
 // ------- Attributes View -------
-function AttributesView({ data, setData, lvl, apAvail, onSpend, onSetSpent }) {
+function AttributesView({ data, setData, lvl, apAvail, onSpend, onSetSpent, selectedArchetype }) {
   const [sel, setSel] = useState({ cat: 0, idx: 0 });
   const selected = data[sel.cat]?.stats[sel.idx];
+  const keyAttrsSet = new Set((Array.isArray(selectedArchetype?.item?.keyAttrs) ? selectedArchetype.item.keyAttrs : []).map((x)=> normalizeAttrName(String(x))));
 
   const inc = useCallback(() => {
     if (!selected) return;
@@ -388,29 +409,29 @@ function AttributesView({ data, setData, lvl, apAvail, onSpend, onSetSpent }) {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
-      {data.slice(0, 4).map((cat,i)=>(<Column key={cat.id} cat={cat} colIndex={i} onSelect={onSelectIdx} sel={sel}/>))}
+      {data.slice(0, 4).map((cat,i)=>(<Column key={cat.id} cat={cat} colIndex={i} onSelect={onSelectIdx} sel={sel} keyAttrsSet={keyAttrsSet}/>))}
       <DetailsPanel stat={selected} onPlus={inc} onMinus={dec}/>
       <div className="md:col-span-2 xl:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
-        {data.slice(4).map((cat,i)=>(<Column key={cat.id} cat={cat} colIndex={i+4} onSelect={onSelectIdx} sel={sel}/>))}
+        {data.slice(4).map((cat,i)=>(<Column key={cat.id} cat={cat} colIndex={i+4} onSelect={onSelectIdx} sel={sel} keyAttrsSet={keyAttrsSet}/>))}
       </div>
     </main>
   );
 }
 
-const Column = memo(function Column({ cat, colIndex, onSelect, sel }) {
+const Column = memo(function Column({ cat, colIndex, onSelect, sel, keyAttrsSet }) {
   return (
     <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
       <h3 className="text-sm font-semibold tracking-wide uppercase text-white/70 mb-2">{cat.title}</h3>
       <div className="space-y-3">
         {cat.stats.map((s, idx) => (
-          <Row key={s.name} name={s.name} value={s.val} stars={s.stars} active={sel.cat===colIndex && sel.idx===idx} onClick={()=>onSelect(colIndex,idx)}/>
+          <Row key={s.name} name={s.name} value={s.val} stars={s.stars} isKey={keyAttrsSet?.has(normalizeAttrName(s.name))} active={sel.cat===colIndex && sel.idx===idx} onClick={()=>onSelect(colIndex,idx)}/>
         ))}
       </div>
     </section>
   );
 });
 
-const Row = memo(function Row({ name, value, stars = 0, active, onClick }) {
+const Row = memo(function Row({ name, value, stars = 0, active, onClick, isKey = false }) {
   const isStars = (stars || 0) > 0;
   const getBarColor = (v) => {
     if (v <= 39) return 'bg-red-500';
@@ -422,9 +443,9 @@ const Row = memo(function Row({ name, value, stars = 0, active, onClick }) {
   const currentVal = isStars ? STAR_VALS[Math.max(1, Math.min(5, stars))] : value;
   const pct = isStars ? (Math.max(1, Math.min(5, stars)) / 5) * 100 : Math.min(100, value);
   return (
-    <button onClick={onClick} className={`w-full text-left group ${active?"":"opacity-90"}`}>
+    <button onClick={onClick} className={`w-full text-left group ${active?"":"opacity-90"}`} >
       <div className="flex items-center justify-between text-[13px]">
-        <span className={`font-medium ${active?"text-white":"text-white/80"}`}>{name}</span>
+        <span className={`font-medium inline-flex items-center gap-1.5 ${active?"text-white":"text-white/80"}`}>{name}{isKey && <Key className="size-3.5 text-amber-300" title="Key attribute" />}</span>
         {isStars ? (
           <Stars5 value={stars} />
         ) : (
@@ -775,7 +796,7 @@ function DevTests() {
 
       // Extra: clamps
       console.assert(clampLvl(0) === 1, 'clampLvl lower bound');
-      console.assert(clampLvl(999) === 40, 'clampLvl upper bound');
+      console.assert(clampLvl(999) === 50, 'clampLvl upper bound');
     } catch (err) { console.error('DevTests failed:', err); }
   }, []);
   return null;
